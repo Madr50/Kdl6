@@ -1,4 +1,3 @@
 pyTelegramBotAPI
 aiohttp
 urllib3
-aiohttp
