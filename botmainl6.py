@@ -21,8 +21,8 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # ═══════════════════════════════════════════════════════════
 API_TOKEN = "8814848831:AAEo3Ui19kB30X93-Cuzugzoi4rdfvpwCjw"
 ADMIN_ID = 8703458182
-ADMIN_USERNAME = "@lxhds"
-CHANNEL_USERNAME = "lsueusuds"
+ADMIN_USERNAME = "lxhds"
+CHANNEL_USERNAME = "@lsueusuds"
 CHANNEL_URL = "https://t.me/lsueusuds"
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1544679115054129282/9BRgzgVo7ipiW6rhxfaECuQDl9vytlVg0ZojCt0_NuLNgMjIh0kDda1EhyVPNvooi5CO"
 
