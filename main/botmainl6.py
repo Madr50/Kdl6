@@ -12,7 +12,7 @@ from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
 try:
     import aiohttp
-    from aiohttp import DummyCookieJar, TCPConnector
+    from aiohttp import TCPConnector
 except ImportError:
     print("[FATAL] aiohttp not installed! Run: pip install aiohttp")
     raise
@@ -683,8 +683,10 @@ class AsyncHotmailChecker:
 
         # Use DummyCookieJar to PREVENT cookie contamination between accounts!
         # Each account gets a fresh session with no shared cookies
-        connector = TCPConnector(limit=1, force_close=True, enable_cleanup_closed=True)
-        cookie_jar = DummyCookieJar()
+        connector = TCPConnector(limit=1, force_close=False, enable_cleanup_closed=True)
+
+        cookie_jar = aiohttp.CookieJar()
+
         timeout = aiohttp.ClientTimeout(total=35, connect=10)
 
         async with aiohttp.ClientSession(
