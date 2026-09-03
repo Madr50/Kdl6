@@ -35,7 +35,7 @@ except ImportError:
 API_TOKEN = os.environ.get("BOT_TOKEN", "8814848831:AAEo3Ui19kB30X93-Cuzugzoi4rdfvpwCjw")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", "8703458182"))
 ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "lxhds")
-CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "lsueusuds")
+CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME", "@lsueusuds")
 CHANNEL_URL = os.environ.get("CHANNEL_URL", "https://t.me/lsueusuds")
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "https://discord.com/api/webhooks/1544679115054129282/9BRgzgVo7ipiW6rhxfaECuQDl9vytlVg0ZojCt0_NuLNgMjIh0kDda1EhyVPNvooi5CO")
 
