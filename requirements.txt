@@ -1,4 +1,4 @@
-pyTelegramBotAPI>=4.12.0
+telebot>=4.12.0
 aiohttp>=3.8.0
 flask>=2.3.0
 urllib3>=2.0.0
